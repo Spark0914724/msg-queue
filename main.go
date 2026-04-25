@@ -66,9 +66,48 @@ func (qb *QueueBroker) Get(queue string, timeout time.Duration) (string, bool) {
 	}
 }
 
+func (qb *QueueBroker) handleRequest(w http.ResponseWriter, r *http.Request) {
+	queue := r.URL.Path[1:]
+	if queue == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	if r.Method == http.MethodPut {
+		v := r.URL.Query().Get("v")
+		if v == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		qb.Put(queue, v)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		timeout := 0
+		if t := r.URL.Query().Get("timeout"); t != "" {
+			fmt.Sscanf(t, "%d", &timeout)
+		}
+		msg, found := qb.Get(queue, time.Duration(timeout)*time.Second)
+		if !found {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(msg))
+		return
+	}
+
+	w.WriteHeader(http.StatusMethodNotAllowed)
+}
+
 func main() {
 	port := flag.String("port", "8080", "Port to listen on")
 	flag.Parse()
+
+	broker := NewQueueBroker()
+	http.HandleFunc("/", broker.handleRequest)
 
 	fmt.Printf("Queue broker starting on port %s\n", *port)
 	http.ListenAndServe(":"+*port, nil)
