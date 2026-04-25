@@ -34,7 +34,7 @@ func (qb *QueueBroker) Put(queue, message string) {
 		qb.waiters[queue] = qb.waiters[queue][1:]
 		waiter.ch <- message
 		return
-	}
+	}		
 
 	qb.queues[queue] = append(qb.queues[queue], message)
 }
@@ -55,6 +55,7 @@ func (qb *QueueBroker) Get(queue string, timeout time.Duration) (string, bool) {
 	}
 
 	waiter := &Waiter{ch: make(chan string, 1)}
+	idx := len(qb.waiters[queue])
 	qb.waiters[queue] = append(qb.waiters[queue], waiter)
 	qb.mu.Unlock()
 
@@ -62,6 +63,14 @@ func (qb *QueueBroker) Get(queue string, timeout time.Duration) (string, bool) {
 	case msg := <-waiter.ch:
 		return msg, true
 	case <-time.After(timeout):
+		qb.mu.Lock()
+		for i, w := range qb.waiters[queue] {
+			if w == waiter {
+				qb.waiters[queue] = append(qb.waiters[queue][:i], qb.waiters[queue][i+1:]...)
+				break
+			}
+		}
+		qb.mu.Unlock()
 		return "", false
 	}
 }
